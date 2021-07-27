@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Evaluate Translate demo'
+
+Parameters:
+  s3bucketwithdatasets:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    Default: s3bucketwithdatasets
+    Type: String
+  EnvironmentName:
+    Type: String
+    Default: Testing
+    Description: The name of the environment to add this service to
+  ImageUrl:
+    Type: String
+    Description: The Public url of a docker image that contains the application process that
+                 will handle the traffic for this service
+  ContainerPort:
+    Type: Number
+    Default: 80
+    Description: What port number the application inside the docker container is binding to
+  ContainerCpu:
+    Type: Number
+    Default: 2048
+    Description: How much CPU to give the container. 1024 is 1 CPU
+  ContainerMemory:
+    Type: Number
+    Default: 8192
+    Description: How much memory in megabytes to give the container
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: How many copies of the service task to run
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${EnvironmentName}-service
+  
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ecs-tasks.amazonaws.com 
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSQSFullAccess
+        - arn:aws:iam::aws:policy/TranslateFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  FargateTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ecs-tasks.amazonaws.com 
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSQSFullAccess
+        - arn:aws:iam::aws:policy/TranslateFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # The ECS cluster and the task definition. This is a simple description of what
+  # container to run, and what resource requirements it has.
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: bert-score
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: !Ref 'ContainerCpu'
+      Memory: !Ref 'ContainerMemory'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn 
+      TaskRoleArn: !GetAtt FargateTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: Bert
+          Cpu: !Ref 'ContainerCpu'
+          Memory: !Ref 'ContainerMemory'
+          Image: !Ref 'ImageUrl'
+          PortMappings:
+            - ContainerPort: !Ref 'ContainerPort'
+          LogConfiguration:
+            LogDriver: 'awslogs'
+            Options:
+              awslogs-group: !Sub ${EnvironmentName}-service
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'Bert'
+
+  # The SQS queue used to buffer messages from S3     
+  MyStandardQueue: 
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: TranslateQueue
+
+  # The S3 bucket used to store the original raw .txt and the translation output. The translation output will be stored under the folder /translate   
+  Bucket:
+    Type: AWS::S3::Bucket
+    DependsOn:
+      - ProcessingLambdaPermission
+    Properties:
+      BucketName: !Ref s3bucketwithdatasets
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt LambdaFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                - Name: suffix
+                  Value: .txt
+
+  # The Lambda function configuration    
+  ProcessingLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref LambdaFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${s3bucketwithdatasets}'
+      SourceAccount: !Ref AWS::AccountId   
+
+  ProcessingLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: allowLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - logs:*
+              Resource: arn:aws:logs:*:*:*
+        - PolicyName: getAndDeleteObjects
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - s3:GetObject
+              - s3:DeleteObject
+              Resource:  !Sub 'arn:aws:s3:::${s3bucketwithdatasets}/*' 
+        - PolicyName: SQSaccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - sqs:*
+              Resource: '*'
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Gets triggered after and .txt is added to the source S3 bucket
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt 'ProcessingLambdaExecutionRole.Arn'
+      Timeout: 240
+      Environment:
+        Variables:
+            WORKER_SQS_QUEUE_URL: !Ref MyStandardQueue
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import sys
+          import os
+          import boto3
+          from botocore.exceptions import ClientError
+          logger = logging.getLogger(__name__)
+
+          s3 = boto3.client('s3')
+          sqs = boto3.client('sqs')
+
+          def send_message(message_body, message_attributes, queue):
+              """
+              Send a message to an Amazon SQS queue.
+              :param message_body: The body text of the message.
+              :param queue: The queue that receives the message.
+              :param message_attributes: Custom attributes of the message. These are key-value
+                                         pairs that can be whatever you want.
+              :return: The response from SQS that contains the assigned message ID.
+              """
+              if not message_attributes:
+                  message_attributes = {}
+
+              try:
+                  response = sqs.send_message(
+                      QueueUrl=queue,
+                      DelaySeconds=2,
+                      MessageBody=message_body,
+                      MessageAttributes=message_attributes
+                  )
+              except ClientError as error:
+                  logger.exception("Send message failed: %s", message_body)
+                  raise error
+              else:
+                  return response
+
+          def read_new_file(record):
+              # Read new file from S3:
+              bucket = record['s3']['bucket']['name']
+              key = record['s3']['object']['key']
+              print('Reading file:', key)
+              response = s3.get_object(Bucket=bucket, Key=key)
+              return response['Body'].read().decode('utf-8')
+
+          def lambda_handler(event, context):
+              if ('WORKER_SQS_QUEUE_URL' not in os.environ):
+                  logging.error('Missing environment variable. Execution requires: WORKER_SQS_QUEUE_URL.')
+                  sys.exit(1)
+              
+              # Read new file from S3 and send rows to SQS:
+              queue_url = os.environ['WORKER_SQS_QUEUE_URL']
+              for file in event['Records']:
+                  file_text = read_new_file(file)
+                  #Send messages to the SQS queue:
+                  for line in file_text.splitlines():
+                      subtext = line.split('|')
+                      if len(subtext) == 2:
+                          message = {"stext":{"DataType":"String","StringValue": subtext[0] },"sref":{"DataType":"String","StringValue": subtext[1] }}
+                          print('Sending message:', json.dumps(message))
+                          response = send_message(line, message, queue_url)
+                          print('Received:', json.dumps(response))
+                      else:
+                          print('Wrong format for line, expected 2 strings separated by | but received:', json.dumps(subtext))
+
+              return {
+                  'statusCode': 200,
+                  'body': 'OK'
+              }
+          
+Outputs:
+  StandardQueueURL:
+    Description: Queue URL for standard queue
+    Value: !Ref MyStandardQueue
