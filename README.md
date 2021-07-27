@@ -2,7 +2,7 @@
 
 With this example, you will deploy the resources required in AWS for setting up an evaluator of translations from Spanish to Italian done by Amazon Translate, based on the open-source library BERT score (https://github.com/Tiiiger/bert_score).
 
-### Architecture
+## Architecture
 The evaluator will follow this architecture in high-level:
 
 ![Architecture](./images/arch.png)
@@ -33,12 +33,14 @@ where P: Precision, R: Recall, and F1: F1 score.
 ![Dashboard](./images/dashboard-w.png)
 
 
-### Instructions
+## Instructions
 
-#### Pre-requisites
+### Pre-requisites
+
 You must have an AWS account for deploying this example.
 
-#### Deploying the AWS Cloud Formation template
+### Deploying the AWS Cloud Formation template
+
 Click on the following button for triggering the deployment of the required infrastructure in your AWS account.
 
 (Add CFN button)
@@ -58,11 +60,11 @@ In the AWS Cloud Formation screen you must input:
 	- Or, use the following public image directly: "public.ecr.aws/t0k4y0i8/translate-bert:latest"
 
 
-### Security
+## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
 
-### License
+## License
 
 This library is licensed under the MIT-0 License. See the LICENSE file.
 
