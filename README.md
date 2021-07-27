@@ -45,6 +45,9 @@ Click on the following button for triggering the deployment of the required infr
 
 Ireland (eu-west-1) [![Deploy Stack Ireland](./images/launchstack.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=Evaluate-Translate-demo&templateURL=https://github.com/aws-samples/evaluate-bertscore-amazon-translate/raw/main/CloudFormation.yaml){:target="_blank"}
 
+Ireland (eu-west-1) <a href="https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=Evaluate-Translate-demo&templateURL=https://github.com/aws-samples/evaluate-bertscore-amazon-translate/raw/main/CloudFormation.yaml" target="_blank">![Ireland (eu-west-1)](./images/launchstack.png)</a>
+
+
 This template will provision:
 - An Amazon S3 bucket for storing the data
 - An AWS Lambda function that will be triggered everytime a new ".txt" file is uploaded to the bucket
