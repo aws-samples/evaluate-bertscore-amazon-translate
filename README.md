@@ -1,4 +1,4 @@
-## Evaluating quality of Amazon Translate's translations with BERTscore
+## Evaluating the quality of Amazon Translate's translations with BERTscore
 
 With this example, you will deploy the resources required in AWS for setting up an evaluator of translations from Spanish to Italian done by Amazon Translate, based on the open-source library BERT score (https://github.com/Tiiiger/bert_score).
 
