@@ -43,7 +43,7 @@ You must have an AWS account for deploying this example.
 
 Click on the following button for triggering the deployment of the required infrastructure in your AWS account.
 
-Ireland (eu-west-1) <a href="https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=Evaluate-Translate-demo&templateURL=https://github.com/aws-samples/evaluate-bertscore-amazon-translate/raw/main/CloudFormation.yaml" target="_blank">![Ireland (eu-west-1)](./images/launchstack.png)</a>
+Ireland (eu-west-1) <a href="https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=Evaluate-Translate-demo&templateURL=./CloudFormation.yaml" target="_blank">![Ireland (eu-west-1)](./images/launchstack.png)</a>
 
 This template will provision:
 - An Amazon S3 bucket for storing the data
