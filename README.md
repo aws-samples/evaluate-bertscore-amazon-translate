@@ -1,6 +1,6 @@
 ## Evaluating the quality of Amazon Translate's translations with BERTscore
 
-With this example, you will deploy the resources required in AWS for setting up an evaluator of translations from Spanish to Italian done by Amazon Translate, based on the open-source library BERT score (https://github.com/Tiiiger/bert_score).
+With this example, you will deploy the resources required in AWS for setting up a scalable evaluator of translations from Spanish to Italian done by Amazon Translate, based on the open-source library BERT score (https://github.com/Tiiiger/bert_score).
 
 ## Architecture
 The evaluator will follow this architecture in high-level:
@@ -32,33 +32,116 @@ where P: Precision, R: Recall, and F1: F1 score.
 
 ![Dashboard](./images/dashboard-w.png)
 
+Note this architecture is relying in containers and queues for scalability. If your need is just punctual, or just for testing or prototyping purpuses, you can apply the BERTscore e.g. in an Amazon SageMaker notebook for running the evaluation directly in your local data.
 
 ## Instructions
 
-### Pre-requisites
+### 0. Pre-requisites
 
 You must have an AWS account for deploying this example.
 
-### Deploying the AWS Cloud Formation template
+### 1. Deploying the AWS Cloud Formation template
 
 Click on the following button for triggering the deployment of the required infrastructure in your AWS account.
 
 Ireland (eu-west-1) <a href="https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=Evaluate-Translate-demo&templateURL=https://github.com/aws-samples/evaluate-bertscore-amazon-translate/raw/main/CloudFormation.yaml" target="_blank">![Ireland (eu-west-1)](./images/launchstack.png)</a>
 
-This template will provision:
+This template will provision the following resources in your AWS account:
 - An Amazon S3 bucket for storing the data
 - An AWS Lambda function that will be triggered everytime a new ".txt" file is uploaded to the bucket
 - An Amazon SQS queue for temporarily storing the data and passing it for processing
 - An Amazon ECS cluster (on AWS Fargate) with its task definition, for processing the data with Amazon Translate and the BERTscore evaluation
+- The AWS IAM roles required
 
-Note the Amazon ECS task will not be running yet, it will just be defined at this point.
+Note the Amazon ECS task will not be running yet, it will just be defined.
 
 In the AWS Cloud Formation screen you must input:
-- A name for the stack (give it any name you want)
-- The image URL for your container. For this you can either:
-	- Adjust the Dockerfile included in this repo (folder "translate-bert"), by adding your Amazon S3 bucket name and your Amazon SQS queue URL, build with Docker on your local environment, and push your container to Amazon ECR taking note of the URL provided
-	- Or, use the following public image directly: "public.ecr.aws/t0k4y0i8/translate-bert:latest"
+- A name for the stack (give it any name you want, e.g. "evaluate-bert-score")
+- The Amazon ECR image URL for your container. We will create this image with your details during the next step, so for now just input any text e.g. "dummy"
+- A name for the Amazon S3 that will be created. It must be unique, so you can use e.g. "evaluate-bert-score-bucket-<ACCOUNTID>" (replace with your own AWS account ID)
 
+![i1](./images/i1.png)
+
+Now click "Next", "Next", go to the end of the page to check the option "I acknowledge that AWS CloudFormation might create IAM resources.", and click on "Create stack".
+
+![i2](./images/i2.png)
+
+This should take a few mins to create the resources. You can monitor the progress by updating the status (circle icon) in the "Resources" tab.
+
+Once all resources have status "CREATE_COMPLETE", take note of a couple of parameters that will be needed during the next steps:
+- The Amazon S3 bucket name (red rectangle below)
+- The Amazon SQS queue URL (red rectangle below)
+- The Amazon ECS cluster name (blue rectangle below)
+
+![i3](./images/i3.png)
+
+### 2. Creating and registering the BERT Score cluster image
+
+You will now register a Docker container image for running the BERT Score evaluation. For this:
+
+- Open a terminal in your local machine and clone this repository:
+
+````
+git clone https://github.com/aws-samples/evaluate-bertscore-amazon-translate/
+
+````
+
+- Access the "translate-bert" folder in the repo
+
+````
+
+cd evaluate-bertscore-amazon-translate/translate-bert
+````
+
+- Edit the file "Dockerfile" with a text editor, replacing the following fields with the parameters you got from the previous step:
+
+````
+ENV WORKER_SQS_QUEUE_URL="<YOUR SQS QUEUE URL>"
+ENV BUCKET_NAME="<YOUR S3 BUCKET NAME>"
+
+````
+
+- (Optional) Edit the script "app.py" and adjust the source and destination languages for your use case. This example comes by default with source in Spanish (slang=es) and destination Italian (dlang=it).
+
+- Build the Docker container by running:
+````
+docker build -t translate-bert .
+
+````
+
+- Register the container in Amazon ECR following the steps in the documentation here: https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html
+
+Take note of the URL provided for your image, it should be similar to "public.ecr.aws/XXXXXXXX/translate-bert:latest"
+
+### 3. Edit your task definition and run it
+
+- Go back to your AWS console and access the Amazon ECS Task Definitions screen: https://eu-west-1.console.aws.amazon.com/ecs/home?region=eu-west-1#/taskDefinitions
+
+- Click on your newly created task "evaluate-bert-score-TaskDefinition-XXXXXXXXXXX"
+
+- Select the current revision, then go to "Create new revision"
+
+- Go down to "Container Definitions" and click on the current name, it should be similar to "Bert"
+
+- Replace the parameter "Image" with the container image URL you got in the previous step 
+
+![i4](./images/i4.png)
+
+- Click on "Update"
+
+A new revision of your ECS task will be created with the suffix ":2".
+
+- You can now select this revision and go to "Actions", "Run task"
+
+- Select:
+	- Launch type: "FARGATE"
+	- Cluster VPC: Choose a VPC
+	- Sebnets: Choose a subnet. It is important that it has Internet access for allowing the container to communicate with the SQS queue, or alternatively use a VPC Endpoint for SQS
+	- Security group: Choose one that allows the communication with SQS
+
+- Click on "Run Task". It should take around 3-5 minutes to instantiate the container and have it ready for service. You will see the status as "Running".
+
+- You can now add any .txt dataset in the bucket, e.g. the one included with this repository "text.txt", and it would process it through the solution. At the end of the process you should have the resulting file "bert-scoreXXXXXXXXXXXXXX.txt" in the bucket including the BERTscore metrics for your translated texts.
 
 ## Security
 
